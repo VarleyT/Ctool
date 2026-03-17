@@ -1,18 +1,16 @@
-name: Build and Release
+name: Multi-Platform Build and Release
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
-  build:
+  # 任务1：处理 Web、浏览器插件及 uTools (Linux 环境效率最高)
+  build-extensions:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Install pnpm
         uses: pnpm/action-setup@v3
@@ -28,16 +26,59 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build core
+      - name: Build Core
         run: pnpm run build
 
-      - name: Build uTools adapter
-        run: pnpm --filter ctool-adapter-utools run platform-release
+      - name: Build Browser & Web Platforms
+        # 串行执行各平台打包，确保资源隔离
+        run: |
+          pnpm --filter ctool-adapter-chrome run platform-release
+          pnpm --filter ctool-adapter-edge run platform-release
+          pnpm --filter ctool-adapter-firefox run platform-release
+          pnpm --filter ctool-adapter-utools run platform-release
+          pnpm --filter ctool-adapter-web run platform-release
 
-      - name: Upload artifacts
+      - name: Upload Extension Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: utools-release
+          name: extensions-release
           path: |
             **/dist/**
             **/release/**
+
+  # 任务2：处理 Tauri (必须在 Windows 环境运行以生成 .exe/.msi)
+  build-tauri:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      # Tauri 编译需要 Rust 环境
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Core
+        run: pnpm run build
+
+      - name: Build Tauri Desktop
+        run: pnpm --filter ctool-adapter-tauri run platform-release
+
+      - name: Upload Tauri Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-windows-release
+          path: |
+            ctool-adapter-tauri/src-tauri/target/release/bundle/**
