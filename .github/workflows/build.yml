@@ -1,26 +1,30 @@
-name: Multi-Platform Build and Release
+name: Project Build and Release (Node 24 Optimized)
 
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
 
+# 全局开启 Node 24 运行环境以消除弃用警告
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
-  # 任务1：处理 Web、浏览器插件及 uTools (Linux 环境效率最高)
-  build-extensions:
+  # 任务1：构建浏览器扩展及 Web 平台
+  build-web-extensions:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v3
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4 # 升级至 v4 以支持更高版本 Node
         with:
           version: 9
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24 # 显式指定使用 Node.js 24
           cache: 'pnpm'
 
       - name: Install dependencies
@@ -29,8 +33,7 @@ jobs:
       - name: Build Core
         run: pnpm run build
 
-      - name: Build Browser & Web Platforms
-        # 串行执行各平台打包，确保资源隔离
+      - name: Build Extensions and Web
         run: |
           pnpm --filter ctool-adapter-chrome run platform-release
           pnpm --filter ctool-adapter-edge run platform-release
@@ -38,33 +41,32 @@ jobs:
           pnpm --filter ctool-adapter-utools run platform-release
           pnpm --filter ctool-adapter-web run platform-release
 
-      - name: Upload Extension Artifacts
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: extensions-release
+          name: web-extensions-dist
           path: |
             **/dist/**
             **/release/**
 
-  # 任务2：处理 Tauri (必须在 Windows 环境运行以生成 .exe/.msi)
-  build-tauri:
+  # 任务2：构建 Tauri 桌面端 (Windows)
+  build-tauri-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v3
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
         with:
           version: 9
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: 'pnpm'
 
-      # Tauri 编译需要 Rust 环境
-      - name: Install Rust toolchain
+      - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install dependencies
@@ -79,6 +81,7 @@ jobs:
       - name: Upload Tauri Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: tauri-windows-release
-          path: |
-            ctool-adapter-tauri/src-tauri/target/release/bundle/**
+          name: tauri-windows-dist
+          # 修正路径：必须包含 packages 目录层级
+          path: packages/ctool-adapter/tauri/src-tauri/target/release/bundle/**
+          if-no-files-found: error # 若路径依然错误，直接报错提醒
